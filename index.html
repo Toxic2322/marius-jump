@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Doodle Jump Clone</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: Arial, sans-serif;
+    }
+    canvas {
+      display: block;
+      background: #000;
+    }
+    #menu, #settings, #pauseMenu {
+      text-align: center;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: none;
+    }
+    #pauseMenu {
+      display: none;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 10px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .slider-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .slider-label {
+      margin-right: 10px;
+      font-size: 18px;
+      color: white;
+    }
+    #menu h1 {
+      font-family: 'Comic Sans MS', sans-serif;
+      font-size: 36px;
+      color: white;
+    }
+    #menu .highscore {
+      font-size: 24px;
+      color: white;
+    }
+    #settings, #pauseMenu {
+      color: white;
+    }
+    #settings button, #pauseMenu button {
+      color: black;
+    }
+    #pauseButton {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      padding: 10px;
+      font-size: 18px;
+      cursor: pointer;
+      color: white;
+      background-color: rgba(0, 0, 0, 0.5);
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 400;
+    canvas.height = 600;
+    document.body.appendChild(canvas);
+
+    const GRAVITY = 0.1;
+    const DEFAULT_JUMP_VELOCITY = -6;
+    const BOOSTED_JUMP_VELOCITY = -10;
+    const PLAYER_WIDTH = 40;
+    const PLAYER_HEIGHT = 40;
+    const PLATFORM_WIDTH = 60;
+    const PLATFORM_HEIGHT = 15;
+    const NUM_PLATFORMS = 10;
+
+    let player;
+    let platforms;
+    let powerUp;
+    let jumpVelocity;
+    let score;
+    let keys = {};
+    let powerUpTimer = 0;
+    let powerUpCooldown = 0;
+    let isPaused = false;
+
+    let highScore = localStorage.getItem('highScore') ? parseInt(localStorage.getItem('highScore')) : 0;
+
+    const playerImage = new Image();
+    playerImage.src = 'player.png';
+
+    const platformImage = new Image();
+    platformImage.src = 'stable_platform.png';
+
+    const powerUpImage = new Image();
+    powerUpImage.src = 'power_up.png';
+
+    const breakablePlatformImage = new Image();
+    breakablePlatformImage.src = 'brake-platform.png';
+
+    const backgroundImage = new Image();
+    backgroundImage.src = 'background.jpg';
+
+    const jumpSound = new Audio('jump.mp3');
+    const breakSound = new Audio('break.mp3');
+    const powerUpSound = new Audio('powerup.mp3');
+    const backgroundMusic = new Audio('background.mp3');
+    backgroundMusic.loop = true;
+    backgroundMusic.volume = 0.5;
+
+    // Menu elements
+    const menu = document.createElement('div');
+    const settings = document.createElement('div');
+    const pauseMenu = document.createElement('div');
+    menu.id = 'menu';
+    settings.id = 'settings';
+    pauseMenu.id = 'pauseMenu';
+    document.body.appendChild(menu);
+    document.body.appendChild(settings);
+    document.body.appendChild(pauseMenu);
+
+    const playButton = document.createElement('button');
+    playButton.textContent = 'Play';
+    menu.appendChild(playButton);
+
+    const settingsButton = document.createElement('button');
+    settingsButton.textContent = 'Settings';
+    menu.appendChild(settingsButton);
+
+    const backButton = document.createElement('button');
+    backButton.textContent = 'Back';
+    settings.appendChild(backButton);
+
+    const pauseButton = document.createElement('button');
+    pauseButton.textContent = 'Pause';
+    pauseButton.id = 'pauseButton';
+    document.body.appendChild(pauseButton); // Add the pause button to the body
+
+    const resumeButton = document.createElement('button');
+    resumeButton.textContent = 'Resume';
+    pauseMenu.appendChild(resumeButton);
+
+    const backToMenuButton = document.createElement('button');
+    backToMenuButton.textContent = 'Back to Menu';
+    pauseMenu.appendChild(backToMenuButton);
+
+    // Sound sliders
+    const musicSlider = document.createElement('input');
+    musicSlider.type = 'range';
+    musicSlider.min = '0';
+    musicSlider.max = '1';
+    musicSlider.step = '0.01';
+    musicSlider.value = backgroundMusic.volume;
+    settings.appendChild(musicSlider);
+
+    const sfxSlider = document.createElement('input');
+    sfxSlider.type = 'range';
+    sfxSlider.min = '0';
+    sfxSlider.max = '1';
+    sfxSlider.step = '0.01';
+    sfxSlider.value = 0.5;
+    settings.appendChild(sfxSlider);
+
+    // Labels for sliders
+    const musicLabel = document.createElement('div');
+    musicLabel.textContent = 'Background Music Volume';
+    musicLabel.classList.add('slider-label');
+    const musicContainer = document.createElement('div');
+    musicContainer.classList.add('slider-container');
+    musicContainer.appendChild(musicLabel);
+    musicContainer.appendChild(musicSlider);
+    settings.appendChild(musicContainer);
+
+    const sfxLabel = document.createElement('div');
+    sfxLabel.textContent = 'SFX Volume';
+    sfxLabel.classList.add('slider-label');
+    const sfxContainer = document.createElement('div');
+    sfxContainer.classList.add('slider-container');
+    sfxContainer.appendChild(sfxLabel);
+    sfxContainer.appendChild(sfxSlider);
+    settings.appendChild(sfxContainer);
+
+    // Set volume based on sliders
+    musicSlider.addEventListener('input', () => {
+      backgroundMusic.volume = musicSlider.value;
+    });
+    sfxSlider.addEventListener('input', () => {
+      jumpSound.volume = sfxSlider.value;
+      breakSound.volume = sfxSlider.value;
+      powerUpSound.volume = sfxSlider.value;
+    });
+
+    // Main menu actions
+    playButton.addEventListener('click', () => {
+      menu.style.display = 'none';
+      settings.style.display = 'none';
+      startGame();
+    });
+
+    settingsButton.addEventListener('click', () => {
+      settings.style.display = 'block';
+      menu.style.display = 'none';
+    });
+
+    backButton.addEventListener('click', () => {
+      settings.style.display = 'none';
+      menu.style.display = 'block';
+    });
+
+    resumeButton.addEventListener('click', () => {
+      isPaused = false;
+      pauseMenu.style.display = 'none';
+      canvas.style.display = 'block';
+      gameLoop();
+    });
+
+    backToMenuButton.addEventListener('click', () => {
+      isPaused = false;
+      pauseMenu.style.display = 'none';
+      canvas.style.display = 'none';
+      menu.style.display = 'block';
+    });
+
+    // Pause button functionality
+    pauseButton.addEventListener('click', () => {
+      isPaused = true;
+      canvas.style.display = 'none';
+      pauseMenu.style.display = 'block';
+    });
+
+    // Show menu
+    menu.style.display = 'block';
+    const title = document.createElement('h1');
+    title.textContent = 'Marius Jump';
+    menu.insertBefore(title, playButton);
+
+    const highScoreText = document.createElement('div');
+    highScoreText.textContent = 'High Score: ' + highScore;
+    highScoreText.classList.add('highscore');
+    menu.appendChild(highScoreText);
+
+    // Event listeners for player movement
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'a' || e.key === 'A') keys['a'] = true;
+      if (e.key === 'd' || e.key === 'D') keys['d'] = true;
+      if (e.key === ' ' && !isPaused) {  // Spacebar to jump
+        if (player.vy === 0) {
+          player.vy = jumpVelocity;
+          jumpSound.play();
+        }
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.key === 'a' || e.key === 'A') keys['a'] = false;
+      if (e.key === 'd' || e.key === 'D') keys['d'] = false;
+    });
+
+    function resetGame() {
+      platforms = [];
+      powerUp = null;
+      jumpVelocity = DEFAULT_JUMP_VELOCITY;
+      score = 0;
+      powerUpTimer = 0;
+      powerUpCooldown = 0;
+      createPlatforms();
+      const startPlatform = platforms[Math.floor(Math.random() * platforms.length)];
+      player = {
+        x: startPlatform.x + PLATFORM_WIDTH / 2 - PLAYER_WIDTH / 2,
+        y: startPlatform.y - PLAYER_HEIGHT,
+        vx: 0,
+        vy: 0,
+        width: PLAYER_WIDTH,
+        height: PLAYER_HEIGHT
+      };
+    }
+
+    function createPlatforms() {
+      for (let i = 0; i < NUM_PLATFORMS; i++) {
+        platforms.push({
+          x: Math.random() * (canvas.width - PLATFORM_WIDTH),
+          y: i * (canvas.height / NUM_PLATFORMS),
+          width: PLATFORM_WIDTH,
+          height: PLATFORM_HEIGHT,
+          breakable: Math.random() < 0.3,
+          broken: false,
+          breaking: false,
+          parts: []
+        });
+      }
+    }
+
+    function drawBackground() {
+      ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+    }
+
+    function drawPlayer() {
+      ctx.drawImage(playerImage, player.x, player.y, player.width, player.height);
+    }
+
+    function drawPlatforms() {
+      platforms.forEach(p => {
+        if (p.broken && p.parts.length) {
+          p.parts.forEach(part => {
+            ctx.drawImage(breakablePlatformImage, part.x, part.y, part.width, part.height);
+          });
+        } else if (!p.broken) {
+          const image = p.breakable ? breakablePlatformImage : platformImage;
+          ctx.drawImage(image, p.x, p.y, p.width, p.height);
+        }
+      });
+    }
+
+    function drawPowerUps() {
+      if (powerUp && powerUp.active) {
+        ctx.drawImage(powerUpImage, powerUp.x, powerUp.y, powerUp.width, powerUp.height);
+      }
+    }
+
+    function updatePlayer() {
+      if (isPaused) return;
+
+      player.vy += GRAVITY;
+      player.y += player.vy;
+      player.x += player.vx;
+
+      if (keys['a']) player.vx = -3;  // Move left
+      else if (keys['d']) player.vx = 3;  // Move right
+      else player.vx = 0;
+
+      if (player.x < 0) player.x = canvas.width;
+      if (player.x > canvas.width) player.x = 0;
+
+      platforms.forEach(p => {
+        if (!p.broken && player.vy > 0 && player.x + player.width > p.x && player.x < p.x + p.width && player.y + player.height > p.y && player.y + player.height < p.y + p.height) {
+          player.vy = jumpVelocity;
+          jumpSound.play();
+          score++;
+          if (p.breakable) {
+            p.broken = true;
+            p.parts = [
+              { x: p.x, y: p.y, width: p.width / 2, height: p.height, vy: 1.5 },
+              { x: p.x + p.width / 2, y: p.y, width: p.width / 2, height: p.height, vy: 1.5 }
+            ];
+            breakSound.play();
+          }
+        }
+      });
+
+      platforms.forEach(p => {
+        if (p.broken && p.parts.length) {
+          p.parts.forEach(part => {
+            part.y += part.vy;
+            part.vy += GRAVITY;
+          });
+        }
+      });
+
+      if (!powerUp && powerUpCooldown <= 0) {
+        const upperLimit = player.y - 100;
+        const upperPlatforms = platforms.filter(p => p.y < upperLimit && !p.broken);
+        if (upperPlatforms.length > 0) {
+          const randomPlatform = upperPlatforms[Math.floor(Math.random() * upperPlatforms.length)];
+          powerUp = {
+            x: randomPlatform.x + PLATFORM_WIDTH / 2 - 10,
+            y: randomPlatform.y - 20,
+            width: 20,
+            height: 20,
+            active: true
+          };
+          powerUpCooldown = 6000;
+        }
+      }
+
+      if (powerUp && powerUp.active && player.x + player.width > powerUp.x && player.x < powerUp.x + powerUp.width && player.y + player.height > powerUp.y && player.y < powerUp.y + powerUp.height) {
+        powerUp.active = false;
+        powerUp = null;
+        jumpVelocity = BOOSTED_JUMP_VELOCITY;
+        powerUpTimer = (powerUpTimer > 0) ? powerUpTimer + 5000 : 5000;
+        powerUpSound.play();
+      }
+
+      if (powerUp && powerUp.y > canvas.height) powerUp = null;
+
+      if (player.y < canvas.height / 2) {
+        const diff = canvas.height / 2 - player.y;
+        player.y = canvas.height / 2;
+        platforms.forEach(p => {
+          if (!p.broken) p.y += diff;
+          if (p.parts.length) p.parts.forEach(part => part.y += diff);
+        });
+        if (powerUp) powerUp.y += diff;
+      }
+
+      platforms = platforms.filter(p => p.y < canvas.height);
+      while (platforms.length < NUM_PLATFORMS) {
+        platforms.push({
+          x: Math.random() * (canvas.width - PLATFORM_WIDTH),
+          y: -PLATFORM_HEIGHT,
+          width: PLATFORM_WIDTH,
+          height: PLATFORM_HEIGHT,
+          breakable: Math.random() < 0.3,
+          broken: false,
+          breaking: false,
+          parts: []
+        });
+      }
+
+      if (player.y > canvas.height) {
+        resetGame();
+      }
+
+      if (powerUpTimer > 0) {
+        powerUpTimer -= 16;
+        if (powerUpTimer <= 0) jumpVelocity = DEFAULT_JUMP_VELOCITY;
+      }
+
+      drawScore();
+    }
+
+    function drawScore() {
+      ctx.font = '20px Arial';
+      ctx.fillStyle = 'white';
+      ctx.fillText('Score: ' + score, 10, 30);
+    }
+
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBackground();
+      drawPlatforms();
+      drawPlayer();
+      drawScore();
+      drawPowerUps();
+      updatePlayer();
+      if (!isPaused) requestAnimationFrame(gameLoop);
+    }
+
+    function startGame() {
+      canvas.style.display = 'block';
+      menu.style.display = 'none';
+      resetGame();
+      backgroundMusic.play();
+      gameLoop();
+    }
+  </script>
+</body>
+</html>
